@@ -563,6 +563,14 @@ async def verify_proof(
     )
     db.add(verif)
     
+    # 3.5 Fetch the goal for the notification message
+    goal_stmt = select(models.Goal).where(models.Goal.id == proof.goal_id)
+    goal_result = await db.execute(goal_stmt)
+    goal = goal_result.scalars().first()
+    
+    if not goal:
+        raise HTTPException(status_code=404, detail="Goal not found")
+    
     # 4. Check if threshold is met to approve the proof
     if verification.approved:
         # Count approved verifications
@@ -597,7 +605,7 @@ async def verify_proof(
         db,
         recipient_id=proof.user_id,
         type=models.NotificationType.proof_verified,
-        message=f"{current_user.username} {'approved' if verification.approved else 'rejected'} your proof for '{proof.goal.title}'",
+        message=f"{current_user.username} {'approved' if verification.approved else 'rejected'} your proof for '{goal.title}'",
         actor_id=current_user.id,
         goal_id=proof.goal_id,
         proof_id=proof.id
