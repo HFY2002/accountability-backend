@@ -8,6 +8,7 @@ import re
 from app.api import deps
 from app.schemas import proof as schemas
 from app.services.storage import storage_service
+from app.services.notification import create_notification
 from app.db import models
 
 router = APIRouter()
@@ -28,11 +29,28 @@ async def list_proofs(
     )
     
     # Get proofs from friends that are pending and need verification
-    # For now, get all pending proofs (can be refined later based on privacy settings)
-    friends_proofs_stmt = select(models.Proof).where(
+    # Filter based on privacy settings - only show proofs where user is an allowed viewer
+    friends_proofs_stmt = select(models.Proof).join(
+        models.Goal,
+        models.Goal.id == models.Proof.goal_id
+    ).join(
+        models.GoalAllowedViewer,
+        models.GoalAllowedViewer.goal_id == models.Goal.id,
+        isouter=True  # Left join for goals without specific viewers
+    ).where(
         and_(
             models.Proof.user_id != current_user.id,
-            models.Proof.status == models.ProofStatus.pending
+            models.Proof.status == models.ProofStatus.pending,
+            or_(
+                # Goal is set to 'friends' (no specific restrictions)
+                models.Goal.privacy_setting == models.GoalPrivacy.friends,
+                # User is in the allowed viewers list
+                and_(
+                    models.Goal.privacy_setting == models.GoalPrivacy.select_friends,
+                    models.GoalAllowedViewer.user_id == current_user.id,
+                    models.GoalAllowedViewer.can_verify == True
+                )
+            )
         )
     )
     
@@ -165,10 +183,31 @@ async def create_proof(
             raise HTTPException(status_code=400, detail="Milestone does not belong to the specified goal")
 
     # 3. Determine verification requirements based on privacy
+    from sqlalchemy import func
+    
     required = 1 
     if goal.privacy_setting == models.GoalPrivacy.select_friends:
-        # Future logic: Count 'can_verify' allowed viewers
-        pass
+        # Count specific allowed viewers
+        viewer_count_stmt = select(func.count()).where(
+            models.GoalAllowedViewer.goal_id == goal.id,
+            models.GoalAllowedViewer.can_verify == True
+        )
+        viewer_count_result = await db.execute(viewer_count_stmt)
+        required = viewer_count_result.scalar() or 1
+    elif goal.privacy_setting == models.GoalPrivacy.friends:
+        # For 'friends' privacy, count all accepted friends
+        friend_count_stmt = select(func.count()).where(
+            or_(
+                models.Friend.requester_id == current_user.id,
+                models.Friend.addressee_id == current_user.id
+            ),
+            models.Friend.status == models.FriendStatus.accepted
+        )
+        friend_count_result = await db.execute(friend_count_stmt)
+        required = friend_count_result.scalar() or 1
+    else:
+        # For private goals, only 1 verification needed (from self or default)
+        required = 1
 
     # 3. Save Proof (image_url generated from key)
     db_proof = models.Proof(
@@ -184,7 +223,53 @@ async def create_proof(
     await db.commit()
     await db.refresh(db_proof)
 
-    # 4. Trigger Notifications (Logic skipped for brevity)
+    # 4. Trigger Notifications for verifiers based on privacy settings
+    if goal.privacy_setting == models.GoalPrivacy.select_friends:
+        # Get specific allowed viewers
+        viewers_stmt = select(models.GoalAllowedViewer).where(
+            models.GoalAllowedViewer.goal_id == goal.id,
+            models.GoalAllowedViewer.can_verify == True
+        )
+        viewers_result = await db.execute(viewers_stmt)
+        viewers = viewers_result.scalars().all()
+        
+        for viewer in viewers:
+            await create_notification(
+                db,
+                recipient_id=viewer.user_id,
+                type=models.NotificationType.proof_submission,
+                message=f"{current_user.username} submitted proof for milestone in '{goal.title}'",
+                actor_id=current_user.id,
+                goal_id=goal.id,
+                proof_id=db_proof.id
+            )
+    
+    elif goal.privacy_setting == models.GoalPrivacy.friends:
+        # Get all accepted friends
+        friends_stmt = select(models.Friend).where(
+            or_(
+                models.Friend.requester_id == current_user.id,
+                models.Friend.addressee_id == current_user.id
+            ),
+            models.Friend.status == models.FriendStatus.accepted
+        )
+        friends_result = await db.execute(friends_stmt)
+        friendships = friends_result.scalars().all()
+        
+        # Extract friend IDs and send notifications
+        for friendship in friendships:
+            friend_id = (friendship.addressee_id if friendship.requester_id == current_user.id 
+                        else friendship.requester_id)
+            
+            await create_notification(
+                db,
+                recipient_id=friend_id,
+                type=models.NotificationType.proof_submission,
+                message=f"{current_user.username} submitted proof for milestone in '{goal.title}'",
+                actor_id=current_user.id,
+                goal_id=goal.id,
+                proof_id=db_proof.id
+            )
     
     # 5. Return properly formatted response
     # The ProofOut schema expects these fields, so construct it manually
