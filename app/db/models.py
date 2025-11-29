@@ -38,12 +38,14 @@ class ProofStatus(str, enum.Enum):
     pending = "pending"
     approved = "approved"
     rejected = "rejected"
+    expired = "expired"  # NEW: Added expired status for proofs past verification window
 
 class NotificationType(str, enum.Enum):
     friend_request = "friend_request"
     friend_request_accepted = "friend_request_accepted"
     proof_submission = "proof_submission"
     proof_verified = "proof_verified"
+    proof_expired = "proof_expired"  # NEW: Notification for expired proofs
     goal_completion_request = "goal_completion_request"
     goal_completed = "goal_completed"
     interval_change_request = "interval_change_request"
@@ -158,7 +160,8 @@ class Proof(Base):
     status = Column(Enum(ProofStatus), default=ProofStatus.pending)
     required_verifications = Column(Integer, default=1)
     uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
-
+    verification_expires_at = Column(DateTime(timezone=True))  # NEW: 72 hour expiry
+    
     goal = relationship("Goal", back_populates="proofs")
     milestone = relationship("Milestone", back_populates="proofs")
     verifications = relationship("ProofVerification", back_populates="proof")
@@ -172,7 +175,7 @@ class ProofVerification(Base):
     approved = Column(Boolean, nullable=False)
     comment = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-
+    
     proof = relationship("Proof", back_populates="verifications")
     verifier = relationship("User")
 

@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_
+from sqlalchemy import select, and_, or_, func
 from uuid import UUID
 import uuid
 import re
+from datetime import datetime, timedelta, timezone
 
 from app.api import deps
 from app.schemas import proof as schemas
@@ -13,8 +14,90 @@ from app.db import models
 
 router = APIRouter()
 
+# NEW: Background task to expire old proofs
+async def expire_old_proofs(db: AsyncSession):
+    """Expire proofs that are past their 72-hour verification window"""
+    expiry_time = datetime.now(timezone.utc) - timedelta(hours=72)
+    
+    # Find pending proofs past expiry
+    expired_stmt = select(models.Proof).where(
+        models.Proof.status == models.ProofStatus.pending,
+        models.Proof.verification_expires_at < datetime.now(timezone.utc)
+    )
+    result = await db.execute(expired_stmt)
+    expired_proofs = result.scalars().all()
+    
+    for proof in expired_proofs:
+        proof.status = models.ProofStatus.expired
+        
+        # Create expiry notification for the uploader
+        await create_notification(
+            db,
+            recipient_id=proof.user_id,
+            type=models.NotificationType.proof_expired,
+            message=f"Your proof for '{proof.goal.title}' has expired without sufficient verifications",
+            actor_id=proof.user_id,  # System notification
+            goal_id=proof.goal_id,
+            proof_id=proof.id
+        )
+    
+    await db.commit()
+
+# NEW: Check if user can verify a proof based on privacy settings
+async def can_user_verify_proof(
+    db: AsyncSession,
+    user_id: UUID,
+    proof: models.Proof
+) -> bool:
+    """Check if user has permission to verify this proof based on privacy settings"""
+    
+    # Cannot verify your own proof
+    if proof.user_id == user_id:
+        return False
+    
+    # Get the goal
+    goal_stmt = select(models.Goal).where(models.Goal.id == proof.goal_id)
+    goal_result = await db.execute(goal_stmt)
+    goal = goal_result.scalars().first()
+    
+    if not goal:
+        return False
+    
+    # Check privacy setting
+    if goal.privacy_setting == models.GoalPrivacy.select_friends:
+        # Check if user is in allowed viewers list
+        viewer_stmt = select(models.GoalAllowedViewer).where(
+            models.GoalAllowedViewer.goal_id == goal.id,
+            models.GoalAllowedViewer.user_id == user_id,
+            models.GoalAllowedViewer.can_verify == True
+        )
+        viewer_result = await db.execute(viewer_stmt)
+        return viewer_result.scalars().first() is not None
+        
+    elif goal.privacy_setting == models.GoalPrivacy.friends:
+        # Check if users are friends
+        friend_stmt = select(models.Friend).where(
+            or_(
+                and_(
+                    models.Friend.requester_id == user_id,
+                    models.Friend.addressee_id == proof.user_id,
+                    models.Friend.status == models.FriendStatus.accepted
+                ),
+                and_(
+                    models.Friend.requester_id == proof.user_id,
+                    models.Friend.addressee_id == user_id,
+                    models.Friend.status == models.FriendStatus.accepted
+                )
+            )
+        )
+        friend_result = await db.execute(friend_stmt)
+        return friend_result.scalars().first() is not None
+    
+    return False  # Private goals cannot be verified by others
+
 @router.get("", response_model=list[schemas.ProofOut])
 async def list_proofs(
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(deps.get_db),
     current_user: models.User = Depends(deps.get_current_user),
 ):
@@ -23,6 +106,9 @@ async def list_proofs(
     - Proofs submitted by the user (their pending proofs)
     - Proofs from friends that are pending verification
     """
+    # Expire old proofs first
+    background_tasks.add_task(expire_old_proofs, db)
+    
     # Get proofs submitted by current user
     user_proofs_stmt = select(models.Proof).where(
         models.Proof.user_id == current_user.id
@@ -77,12 +163,28 @@ async def list_proofs(
         goal_result = await db.execute(goal_stmt)
         goal = goal_result.scalars().first()
         
+        # Get milestone details if milestone_id exists
+        milestone_title = None
+        milestone_description = None
+        if proof.milestone_id:
+            milestone_stmt = select(models.Milestone).where(models.Milestone.id == proof.milestone_id)
+            milestone_result = await db.execute(milestone_stmt)
+            milestone = milestone_result.scalars().first()
+            if milestone:
+                milestone_title = milestone.title
+                milestone_description = milestone.description
+        
         # Get verification details
         verif_stmt = select(models.ProofVerification).where(
             models.ProofVerification.proof_id == proof.id
         )
         verif_result = await db.execute(verif_stmt)
         verifications = verif_result.scalars().all()
+        
+        # Check if current user can verify this proof
+        can_verify = False
+        if proof.user_id != current_user.id:
+            can_verify = await can_user_verify_proof(db, current_user.id, proof)
         
         # Transform verifications to include verifier names
         verif_out = []
@@ -111,13 +213,117 @@ async def list_proofs(
             caption=proof.caption,
             status=proof.status,
             requiredVerifications=proof.required_verifications,
-            uploadedAt=proof.created_at,
+            uploadedAt=proof.uploaded_at,  # FIXED: Uses uploaded_at field
+            verificationExpiresAt=proof.verification_expires_at,  # NEW: Expiry time
             verifications=verif_out,
-            goalTitle=goal.title if goal else "Unknown Goal"
+            goalTitle=goal.title if goal else "Unknown Goal",
+            milestoneTitle=milestone_title,
+            milestoneDescription=milestone_description,
+            canVerify=can_verify  # NEW: Permission flag
         )
         result.append(proof_out)
     
     return result
+
+@router.get("/{proof_id}", response_model=schemas.ProofOut)
+async def get_proof_details(
+    proof_id: UUID,
+    db: AsyncSession = Depends(deps.get_db),
+    current_user: models.User = Depends(deps.get_current_user),
+):
+    """
+    Get detailed information about a single proof.
+    Includes milestone details and full verification information.
+    Enhanced with access control checks.
+    """
+    # Fetch the proof
+    proof_stmt = select(models.Proof).where(models.Proof.id == proof_id)
+    proof_result = await db.execute(proof_stmt)
+    proof = proof_result.scalars().first()
+    
+    if not proof:
+        raise HTTPException(status_code=404, detail="Proof not found")
+    
+    # Check if user has permission to view this proof
+    # User can view if they submitted it OR if they're an allowed verifier
+    if proof.user_id != current_user.id:
+        # Check if user can verify (which also means they can view)
+        if not await can_user_verify_proof(db, current_user.id, proof):
+            raise HTTPException(status_code=403, detail="You don't have permission to view this proof")
+    
+    # Check if proof has expired
+    if proof.verification_expires_at and proof.verification_expires_at < datetime.now(timezone.utc):
+        if proof.status == models.ProofStatus.pending:
+            proof.status = models.ProofStatus.expired
+            await db.commit()
+            await db.refresh(proof)
+    
+    # Get all related details
+    user_stmt = select(models.User).where(models.User.id == proof.user_id)
+    user_result = await db.execute(user_stmt)
+    user = user_result.scalars().first()
+    
+    goal_stmt = select(models.Goal).where(models.Goal.id == proof.goal_id)
+    goal_result = await db.execute(goal_stmt)
+    goal = goal_result.scalars().first()
+    
+    # Get milestone details
+    milestone_title = None
+    milestone_description = None
+    if proof.milestone_id:
+        milestone_stmt = select(models.Milestone).where(models.Milestone.id == proof.milestone_id)
+        milestone_result = await db.execute(milestone_stmt)
+        milestone = milestone_result.scalars().first()
+        if milestone:
+            milestone_title = milestone.title
+            milestone_description = milestone.description
+    
+    # Get verification details
+    verif_stmt = select(models.ProofVerification).where(
+        models.ProofVerification.proof_id == proof.id
+    )
+    verif_result = await db.execute(verif_stmt)
+    verifications = verif_result.scalars().all()
+    
+    # Check if current user can verify
+    can_verify = False
+    if proof.user_id != current_user.id:
+        can_verify = await can_user_verify_proof(db, current_user.id, proof)
+    
+    # Transform verifications
+    verif_out = []
+    for v in verifications:
+        verifier_stmt = select(models.User).where(models.User.id == v.verifier_id)
+        verifier_result = await db.execute(verifier_stmt)
+        verifier = verifier_result.scalars().first()
+        
+        verif_out.append(schemas.ProofVerificationOut(
+            id=v.id,
+            verifier_id=v.verifier_id,
+            verifierName=verifier.username if verifier else "Unknown",
+            approved=v.approved,
+            comment=v.comment,
+            created_at=v.created_at
+        ))
+    
+    return schemas.ProofOut(
+        id=proof.id,
+        goal_id=proof.goal_id,
+        milestone_id=proof.milestone_id,
+        user_id=proof.user_id,
+        userName=user.username if user else "Unknown",
+        image_url=proof.image_url,
+        caption=proof.caption,
+        status=proof.status,
+        requiredVerifications=proof.required_verifications,
+        uploadedAt=proof.uploaded_at,
+        verificationExpiresAt=proof.verification_expires_at,
+        verifications=verif_out,
+        goalTitle=goal.title if goal else "Unknown Goal",
+        milestoneTitle=milestone_title,
+        milestoneDescription=milestone_description,
+        canVerify=can_verify
+    )
 
 @router.get("/storage/upload-url")
 async def get_upload_url(
@@ -161,6 +367,7 @@ async def get_upload_url(
 @router.post("", response_model=schemas.ProofOut)
 async def create_proof(
     proof_in: schemas.ProofCreateIn,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(deps.get_db),
     current_user: models.User = Depends(deps.get_current_user),
 ):
@@ -209,7 +416,10 @@ async def create_proof(
         # For private goals, only 1 verification needed (from self or default)
         required = 1
 
-    # 3. Save Proof (image_url generated from key)
+    # 4. Save Proof (image_url generated from key)
+    # NEW: Set 72-hour expiry time
+    verification_expires_at = datetime.now(timezone.utc) + timedelta(hours=72)
+    
     db_proof = models.Proof(
         goal_id=proof_in.goal_id,
         milestone_id=proof_in.milestone_id,
@@ -217,13 +427,13 @@ async def create_proof(
         image_url=storage_service.get_public_url(proof_in.storage_key),
         caption=proof_in.caption,
         status=models.ProofStatus.pending,
-        required_verifications=required
+        required_verifications=required,
+        verification_expires_at=verification_expires_at
     )
     db.add(db_proof)
-    await db.commit()
-    await db.refresh(db_proof)
+    await db.flush()  # Flush to get the proof ID
 
-    # 4. Trigger Notifications for verifiers based on privacy settings
+    # 5. Trigger Notifications for verifiers based on privacy settings
     if goal.privacy_setting == models.GoalPrivacy.select_friends:
         # Get specific allowed viewers
         viewers_stmt = select(models.GoalAllowedViewer).where(
@@ -271,8 +481,21 @@ async def create_proof(
                 proof_id=db_proof.id
             )
     
-    # 5. Return properly formatted response
-    # The ProofOut schema expects these fields, so construct it manually
+    await db.commit()
+    await db.refresh(db_proof)
+
+    # 6. Get milestone details for response
+    milestone_title = None
+    milestone_description = None
+    if db_proof.milestone_id:
+        milestone_stmt = select(models.Milestone).where(models.Milestone.id == db_proof.milestone_id)
+        milestone_result = await db.execute(milestone_stmt)
+        milestone = milestone_result.scalars().first()
+        if milestone:
+            milestone_title = milestone.title
+            milestone_description = milestone.description
+
+    # 7. Return properly formatted response
     return schemas.ProofOut(
         id=db_proof.id,
         goal_id=db_proof.goal_id,
@@ -283,9 +506,13 @@ async def create_proof(
         caption=db_proof.caption,
         status=db_proof.status,
         requiredVerifications=db_proof.required_verifications,
-        uploadedAt=db_proof.created_at,
+        uploadedAt=db_proof.uploaded_at,
+        verificationExpiresAt=db_proof.verification_expires_at,  # NEW: Include expiry time
         verifications=[],  # New proof has no verifications yet
-        goalTitle=goal.title if goal else "Unknown Goal"
+        goalTitle=goal.title if goal else "Unknown Goal",
+        milestoneTitle=milestone_title,
+        milestoneDescription=milestone_description,
+        canVerify=False  # User cannot verify their own proof
     )
 
 @router.post("/{proof_id}/verifications")
@@ -300,10 +527,34 @@ async def verify_proof(
     res = await db.execute(proof_stmt)
     proof = res.scalars().first()
     
-    if proof.user_id == current_user.id:
-        raise HTTPException(status_code=400, detail="Cannot verify your own proof")
+    if not proof:
+        raise HTTPException(status_code=404, detail="Proof not found")
+    
+    # NEW: Check if proof has expired
+    if proof.verification_expires_at and proof.verification_expires_at < datetime.now(timezone.utc):
+        if proof.status == models.ProofStatus.pending:
+            proof.status = models.ProofStatus.expired
+            await db.commit()
+            await db.refresh(proof)
+        raise HTTPException(status_code=400, detail="This proof has expired and can no longer be verified")
+    
+    # NEW: Enhanced access control check
+    if not await can_user_verify_proof(db, current_user.id, proof):
+        if proof.user_id == current_user.id:
+            raise HTTPException(status_code=400, detail="Cannot verify your own proof")
+        else:
+            raise HTTPException(status_code=403, detail="You don't have permission to verify this proof")
+    
+    # 2. Check if user has already verified this proof
+    existing_verif_stmt = select(models.ProofVerification).where(
+        models.ProofVerification.proof_id == proof_id,
+        models.ProofVerification.verifier_id == current_user.id
+    )
+    existing_result = await db.execute(existing_verif_stmt)
+    if existing_result.scalars().first():
+        raise HTTPException(status_code=400, detail="You have already verified this proof")
 
-    # 2. Record Verification
+    # 3. Record Verification
     verif = models.ProofVerification(
         proof_id=proof_id,
         verifier_id=current_user.id,
@@ -312,9 +563,106 @@ async def verify_proof(
     )
     db.add(verif)
     
-    # 3. Logic: Check if threshold met to approve proof entirely
-    # if verification.approved and (count >= proof.required_verifications):
-    #     proof.status = models.ProofStatus.approved
+    # 4. Check if threshold is met to approve the proof
+    if verification.approved:
+        # Count approved verifications
+        count_stmt = select(func.count()).where(
+            models.ProofVerification.proof_id == proof_id,
+            models.ProofVerification.approved == True
+        )
+        count_result = await db.execute(count_stmt)
+        approved_count = count_result.scalar()
+        
+        # If threshold met, approve the proof
+        if approved_count >= proof.required_verifications:
+            proof.status = models.ProofStatus.approved
+            
+            # Mark milestone as completed if this proof is for a milestone
+            if proof.milestone_id:
+                milestone_stmt = select(models.Milestone).where(
+                    models.Milestone.id == proof.milestone_id
+                )
+                milestone_result = await db.execute(milestone_stmt)
+                milestone = milestone_result.scalars().first()
+                
+                if milestone:
+                    milestone.completed = True
+                    milestone.completed_at = func.now()
+    else:
+        # If any verifier rejects, mark proof as rejected
+        proof.status = models.ProofStatus.rejected
+
+    # 5. Create verification notification
+    await create_notification(
+        db,
+        recipient_id=proof.user_id,
+        type=models.NotificationType.proof_verified,
+        message=f"{current_user.username} {'approved' if verification.approved else 'rejected'} your proof for '{proof.goal.title}'",
+        actor_id=current_user.id,
+        goal_id=proof.goal_id,
+        proof_id=proof.id
+    )
     
     await db.commit()
-    return proof
+    
+    # 6. Return the updated proof with all details
+    # Fetch updated proof with all verifications
+    verif_stmt = select(models.ProofVerification).where(
+        models.ProofVerification.proof_id == proof_id
+    )
+    verif_result = await db.execute(verif_stmt)
+    verifications = verif_result.scalars().all()
+    
+    # Get milestone details
+    milestone_title = None
+    milestone_description = None
+    if proof.milestone_id:
+        milestone_stmt = select(models.Milestone).where(models.Milestone.id == proof.milestone_id)
+        milestone_result = await db.execute(milestone_stmt)
+        milestone = milestone_result.scalars().first()
+        if milestone:
+            milestone_title = milestone.title
+            milestone_description = milestone.description
+    
+    # Transform verifications
+    verif_out = []
+    for v in verifications:
+        verifier_stmt = select(models.User).where(models.User.id == v.verifier_id)
+        verifier_result = await db.execute(verifier_stmt)
+        verifier = verifier_result.scalars().first()
+        
+        verif_out.append(schemas.ProofVerificationOut(
+            id=v.id,
+            verifier_id=v.verifier_id,
+            verifierName=verifier.username if verifier else "Unknown",
+            approved=v.approved,
+            comment=v.comment,
+            created_at=v.created_at
+        ))
+    
+    user_stmt = select(models.User).where(models.User.id == proof.user_id)
+    user_result = await db.execute(user_stmt)
+    user = user_result.scalars().first()
+    
+    goal_stmt = select(models.Goal).where(models.Goal.id == proof.goal_id)
+    goal_result = await db.execute(goal_stmt)
+    goal = goal_result.scalars().first()
+    
+    return schemas.ProofOut(
+        id=proof.id,
+        goal_id=proof.goal_id,
+        milestone_id=proof.milestone_id,
+        user_id=proof.user_id,
+        userName=user.username if user else "Unknown",
+        image_url=proof.image_url,
+        caption=proof.caption,
+        status=proof.status,
+        requiredVerifications=proof.required_verifications,
+        uploadedAt=proof.uploaded_at,
+        verificationExpiresAt=proof.verification_expires_at,
+        verifications=verif_out,
+        goalTitle=goal.title if goal else "Unknown Goal",
+        milestoneTitle=milestone_title,
+        milestoneDescription=milestone_description,
+        canVerify=False  # After verification, user can no longer verify
+    )

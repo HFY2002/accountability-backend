@@ -37,9 +37,13 @@ class ProofOut(BaseModel):
     caption: Optional[str] = None
     status: ProofStatus
     requiredVerifications: int = 1  # Added for frontend compatibility
-    uploadedAt: Optional[datetime] = None  # Added for frontend compatibility
+    uploadedAt: Optional[datetime] = None  # Maps to uploaded_at in DB
+    verificationExpiresAt: Optional[datetime] = None  # NEW: 72 hour expiry time
     verifications: List[ProofVerificationOut] = []
     goalTitle: Optional[str] = None  # Added for frontend compatibility
+    milestoneTitle: Optional[str] = None  # Milestone title for frontend
+    milestoneDescription: Optional[str] = None  # Milestone description for frontend
+    canVerify: Optional[bool] = None  # NEW: Whether current user can verify this proof
 
     class Config:
         from_attributes = True

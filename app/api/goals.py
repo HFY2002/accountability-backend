@@ -243,3 +243,49 @@ async def give_up_goal(
     
     await db.commit()
     return {"message": "Goal marked as failed", "status": goal.status}
+
+
+@router.patch("/milestones/{milestone_id}/complete")
+async def complete_milestone(
+    milestone_id: str,
+    db: AsyncSession = Depends(deps.get_db),
+    current_user: models.User = Depends(deps.get_current_user),
+):
+    """
+    Mark a milestone as completed.
+    This is typically called automatically when a proof gets enough verifications.
+    """
+    stmt = select(models.Milestone).where(
+        models.Milestone.id == milestone_id
+    )
+    result = await db.execute(stmt)
+    milestone = result.scalars().first()
+    
+    if not milestone:
+        raise HTTPException(status_code=404, detail="Milestone not found")
+    
+    # Verify user owns the goal this milestone belongs to
+    goal_stmt = select(models.Goal).where(
+        models.Goal.id == milestone.goal_id,
+        models.Goal.user_id == current_user.id
+    )
+    goal_result = await db.execute(goal_stmt)
+    goal = goal_result.scalars().first()
+    
+    if not goal:
+        raise HTTPException(status_code=403, detail="You don't have permission to update this milestone")
+    
+    # Mark milestone as completed
+    milestone.completed = True
+    milestone.completed_at = datetime.utcnow()
+    milestone.progress = 100
+    
+    await db.commit()
+    await db.refresh(milestone)
+    
+    return {
+        "message": "Milestone marked as complete",
+        "milestone_id": milestone.id,
+        "completed": milestone.completed,
+        "completed_at": milestone.completed_at
+    }
