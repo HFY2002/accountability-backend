@@ -50,3 +50,15 @@ class Token(BaseModel):
     access_token: str
     token_type: str
     user: dict
+
+
+class UserSearchResult(BaseModel):
+    id: UUID
+    email: str
+    username: str
+    avatar_url: Optional[str] = None
+    is_friend: bool = False
+    has_pending_request: bool = False
+
+    class Config:
+        from_attributes = True

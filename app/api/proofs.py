@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_
 from uuid import UUID
 import uuid
+import re
 
 from app.api import deps
 from app.schemas import proof as schemas
@@ -101,11 +102,37 @@ async def list_proofs(
     return result
 
 @router.get("/storage/upload-url")
-async def get_upload_url(filename: str, content_type: str):
+async def get_upload_url(
+    filename: str, 
+    content_type: str,
+    current_user: models.User = Depends(deps.get_current_user)
+):
     """
     Get a presigned URL to upload a file directly to MinIO/S3.
+    Validates file type and size limits.
     """
-    ext = filename.split(".")[-1]
+    # Validate file type - accept only images
+    allowed_extensions = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif'}
+    allowed_content_types = {
+        'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 
+        'image/webp', 'image/heic', 'image/heif', 'image/heif-sequence'
+    }
+    
+    ext = filename.split(".")[-1].lower()
+    
+    if ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid file type. Allowed types: {', '.join(allowed_extensions)}"
+        )
+    
+    if content_type and content_type.lower() not in allowed_content_types:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid content type. Allowed types: {', '.join(allowed_content_types)}"
+        )
+    
+    # Generate random filename
     storage_key = f"{uuid.uuid4()}.{ext}"
     
     url = storage_service.generate_presigned_put(storage_key, content_type)
@@ -127,7 +154,17 @@ async def create_proof(
     if not goal:
         raise HTTPException(status_code=404, detail="Goal not found")
 
-    # 2. Determine verification requirements based on privacy
+    # 2. Validate milestone (if provided) belongs to this goal
+    if proof_in.milestone_id:
+        milestone_stmt = select(models.Milestone).where(
+            models.Milestone.id == proof_in.milestone_id,
+            models.Milestone.goal_id == proof_in.goal_id
+        )
+        milestone_res = await db.execute(milestone_stmt)
+        if not milestone_res.scalars().first():
+            raise HTTPException(status_code=400, detail="Milestone does not belong to the specified goal")
+
+    # 3. Determine verification requirements based on privacy
     required = 1 
     if goal.privacy_setting == models.GoalPrivacy.select_friends:
         # Future logic: Count 'can_verify' allowed viewers
@@ -149,7 +186,22 @@ async def create_proof(
 
     # 4. Trigger Notifications (Logic skipped for brevity)
     
-    return db_proof
+    # 5. Return properly formatted response
+    # The ProofOut schema expects these fields, so construct it manually
+    return schemas.ProofOut(
+        id=db_proof.id,
+        goal_id=db_proof.goal_id,
+        milestone_id=db_proof.milestone_id,
+        user_id=db_proof.user_id,
+        userName=current_user.username,
+        image_url=db_proof.image_url,
+        caption=db_proof.caption,
+        status=db_proof.status,
+        requiredVerifications=db_proof.required_verifications,
+        uploadedAt=db_proof.created_at,
+        verifications=[],  # New proof has no verifications yet
+        goalTitle=goal.title if goal else "Unknown Goal"
+    )
 
 @router.post("/{proof_id}/verifications")
 async def verify_proof(

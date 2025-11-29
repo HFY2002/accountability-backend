@@ -54,13 +54,18 @@ async def list_friends(
         user_result = await db.execute(user_stmt)
         other_user = user_result.scalars().first()
         
+        # Get the other user's profile for avatar URL
+        profile_stmt = select(models.UserProfile).where(models.UserProfile.user_id == other_user_id)
+        profile_result = await db.execute(profile_stmt)
+        profile = profile_result.scalars().first()
+        
         if other_user:
             friends_list.append(schemas.FriendOut(
                 id=str(friendship.id),
                 user_id=str(other_user.id),
                 name=other_user.username,
                 email=other_user.email,
-                avatar="",  # Add avatar URL if available in User model
+                avatar=profile.avatar_url if profile else None,  # Use actual avatar URL from profile
                 status=status,
                 added_at=friendship.created_at
             ))
@@ -96,7 +101,25 @@ async def send_friend_request(
             message=f"{current_user.username} accepted your friend request",
             actor_id=current_user.id
         )
-        return reverse_request
+        
+        # Get the other user's details for response
+        user_stmt = select(models.User).where(models.User.id == target_id)
+        user_result = await db.execute(user_stmt)
+        other_user = user_result.scalars().first()
+        
+        profile_stmt = select(models.UserProfile).where(models.UserProfile.user_id == target_id)
+        profile_result = await db.execute(profile_stmt)
+        profile = profile_result.scalars().first()
+        
+        return schemas.FriendOut(
+            id=str(reverse_request.id),
+            user_id=str(other_user.id),
+            name=other_user.username,
+            email=other_user.email,
+            avatar=profile.avatar_url if profile else None,
+            status="accepted",
+            added_at=reverse_request.created_at
+        )
 
     # Create new request
     new_friendship = models.Friend(
@@ -106,6 +129,7 @@ async def send_friend_request(
     )
     db.add(new_friendship)
     await db.commit()
+    await db.refresh(new_friendship)
     
     await create_notification(
         db, recipient_id=target_id,
@@ -114,4 +138,103 @@ async def send_friend_request(
         actor_id=current_user.id
     )
     
-    return new_friendship
+    # Get the other user's details for response
+    user_stmt = select(models.User).where(models.User.id == target_id)
+    user_result = await db.execute(user_stmt)
+    other_user = user_result.scalars().first()
+    
+    profile_stmt = select(models.UserProfile).where(models.UserProfile.user_id == target_id)
+    profile_result = await db.execute(profile_stmt)
+    profile = profile_result.scalars().first()
+    
+    return schemas.FriendOut(
+        id=str(new_friendship.id),
+        user_id=str(other_user.id),
+        name=other_user.username,
+        email=other_user.email,
+        avatar=profile.avatar_url if profile else None,
+        status="pending_sent",
+        added_at=new_friendship.created_at
+    )
+
+@router.post("/requests/{friendship_id}/accept", response_model=schemas.FriendOut)
+async def accept_friend_request(
+    friendship_id: UUID,
+    db: AsyncSession = Depends(deps.get_db),
+    current_user: models.User = Depends(deps.get_current_user),
+):
+    """Accept a pending friend request."""
+    # Find the friend request
+    stmt = select(models.Friend).where(
+        models.Friend.id == friendship_id,
+        models.Friend.addressee_id == current_user.id,
+        models.Friend.status == models.FriendStatus.pending
+    )
+    result = await db.execute(stmt)
+    friendship = result.scalars().first()
+    
+    if not friendship:
+        raise HTTPException(
+            status_code=404, 
+            detail="Friend request not found or you don't have permission to accept it"
+        )
+    
+    # Accept the request
+    friendship.status = models.FriendStatus.accepted
+    await db.commit()
+    await db.refresh(friendship)
+    
+    # Send notification to the requester
+    await create_notification(
+        db, recipient_id=friendship.requester_id,
+        type=models.NotificationType.friend_request_accepted,
+        message=f"{current_user.username} accepted your friend request",
+        actor_id=current_user.id
+    )
+    
+    # Get the requester's details for response
+    user_stmt = select(models.User).where(models.User.id == friendship.requester_id)
+    user_result = await db.execute(user_stmt)
+    other_user = user_result.scalars().first()
+    
+    profile_stmt = select(models.UserProfile).where(models.UserProfile.user_id == friendship.requester_id)
+    profile_result = await db.execute(profile_stmt)
+    profile = profile_result.scalars().first()
+    
+    return schemas.FriendOut(
+        id=str(friendship.id),
+        user_id=str(other_user.id),
+        name=other_user.username,
+        email=other_user.email,
+        avatar=profile.avatar_url if profile else None,
+        status="accepted",
+        added_at=friendship.created_at
+    )
+
+@router.delete("/requests/{friendship_id}/decline", status_code=204)
+async def decline_friend_request(
+    friendship_id: UUID,
+    db: AsyncSession = Depends(deps.get_db),
+    current_user: models.User = Depends(deps.get_current_user),
+):
+    """Decline a pending friend request."""
+    # Find the friend request
+    stmt = select(models.Friend).where(
+        models.Friend.id == friendship_id,
+        models.Friend.addressee_id == current_user.id,
+        models.Friend.status == models.FriendStatus.pending
+    )
+    result = await db.execute(stmt)
+    friendship = result.scalars().first()
+    
+    if not friendship:
+        raise HTTPException(
+            status_code=404, 
+            detail="Friend request not found or you don't have permission to decline it"
+        )
+    
+    # Delete the request (decline)
+    await db.delete(friendship)
+    await db.commit()
+    
+    return None
