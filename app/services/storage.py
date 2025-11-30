@@ -47,7 +47,8 @@ class StorageService:
             return None
 
     def get_public_url(self, object_name: str) -> str:
-        """Generate a viewable URL (assuming public read or proxy)."""
+        """Return direct permanent URL for public bucket access."""
+        # Bucket is already public, return direct URL instead of expiring presigned URL
         return f"http://{settings.MINIO_ENDPOINT}/{settings.PROOF_BUCKET}/{object_name}"
     
     def get_object_key_from_url(self, url: str) -> str:

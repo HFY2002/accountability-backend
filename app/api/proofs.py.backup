@@ -159,8 +159,7 @@ async def list_proofs(
     user_proofs_result = await db.execute(user_proofs_stmt)
     friends_proofs_result = await db.execute(friends_proofs_stmt)
     
-    user_proofs = user_proofs_result.scalars().all(); print(f"DEBUG Proof Listing: User {current_user.id} querying proofs...")
-    friends_proofs = friends_proofs_result.scalars().all(); print(f"DEBUG Proof Listing: Found {len(user_proofs)} user proofs, {len(friends_proofs)} friend proofs")
+    user_proofs = user_proofs_result.scalars().all()
     friends_proofs = friends_proofs_result.scalars().all()
     
     # Combine all proofs
@@ -458,7 +457,6 @@ async def create_proof(
         )
         viewers_result = await db.execute(viewers_stmt)
         viewers = viewers_result.scalars().all()
-        print(f"DEBUG Proof Creation: Goal {goal.id} has {len(viewers)} allowed viewers for notifications")
         
         for viewer in viewers:
             await create_notification(

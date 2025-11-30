@@ -53,12 +53,14 @@ class GoalUpdate(BaseModel):
     description: Optional[str] = None
     privacy_setting: Optional[GoalPrivacy] = None
     image_url: Optional[str] = None
+    selected_friend_ids: Optional[List[UUID]] = None
 
 
 class GoalCreateFlexibleIn(GoalBaseIn):
     milestone_type: Literal["flexible"] = "flexible"
     milestone_interval_days: int
     initial_milestones: List[MilestoneCreateIn]
+    selected_friend_ids: Optional[List[UUID]] = None
 
 
 class GoalCreateDefinedIn(GoalBaseIn):
@@ -66,6 +68,7 @@ class GoalCreateDefinedIn(GoalBaseIn):
     milestone_interval_days: int
     milestone_quantity: int
     milestone_unit: str
+    selected_friend_ids: Optional[List[UUID]] = None
 
 
 class GoalListOut(BaseModel):

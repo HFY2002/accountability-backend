@@ -263,10 +263,6 @@ class TestPrivacyVerification:
         friends_proofs_stmt = select(Proof).join(
             Goal,
             Goal.id == Proof.goal_id
-        ).join(
-            GoalAllowedViewer,
-            GoalAllowedViewer.goal_id == Goal.id,
-            isouter=True
         ).where(
             and_(
                 Proof.user_id != self.friend_id,  # Friend is not the submitter
@@ -275,8 +271,11 @@ class TestPrivacyVerification:
                     Goal.privacy_setting == GoalPrivacy.friends,
                     and_(
                         Goal.privacy_setting == GoalPrivacy.select_friends,
-                        GoalAllowedViewer.user_id == self.friend_id,
-                        GoalAllowedViewer.can_verify == True
+                        select(GoalAllowedViewer).where(
+                            GoalAllowedViewer.goal_id == Goal.id,
+                            GoalAllowedViewer.user_id == self.friend_id,
+                            GoalAllowedViewer.can_verify == True
+                        ).exists()
                     )
                 )
             )

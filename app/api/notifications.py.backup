@@ -5,7 +5,7 @@ from uuid import UUID
 
 from app.api import deps
 from app.db import models
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
 
@@ -13,18 +13,19 @@ router = APIRouter()
 
 
 class NotificationOut(BaseModel):
-    id: UUID
-    recipient_id: UUID
-    actor_id: Optional[UUID]
+    id: str
+    recipient_id: str
+    actor_id: Optional[str]
     type: str
-    goal_id: Optional[UUID]
-    proof_id: Optional[UUID]
+    goal_id: Optional[str]
+    proof_id: Optional[str]
     message: str
     status: str
     created_at: datetime
     
-    model_config = ConfigDict(from_attributes=True)
-    
+    class Config:
+        from_attributes = True
+
 
 class NotificationUpdateStatus(BaseModel):
     status: str  # 'read' or 'archived'
