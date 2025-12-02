@@ -108,6 +108,7 @@ class GoalDetailOut(BaseModel):
     milestone_quantity: Optional[int] = None
     milestone_unit: Optional[str] = None
     user_story: Optional[str] = None
+    verifying_partners: Optional[List[UserSummaryOut]] = None
 
     class Config:
         from_attributes = True

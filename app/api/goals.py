@@ -120,7 +120,52 @@ async def create_goal(
     result = await db.execute(stmt)
     goal_with_milestones = result.scalars().first()
     
-    return goal_with_milestones
+    # Build verifying_partners list
+    verifying_partners = []
+    if (goal_in.privacy_setting == models.GoalPrivacy.select_friends and 
+        hasattr(goal_in, 'selected_friend_ids') and 
+        goal_in.selected_friend_ids):
+        
+        for friend_id in goal_in.selected_friend_ids:
+            # Get user details
+            user_stmt = select(models.User).where(models.User.id == friend_id)
+            user_result = await db.execute(user_stmt)
+            user = user_result.scalars().first()
+            
+            if user:
+                # Get profile
+                profile_stmt = select(models.UserProfile).where(
+                    models.UserProfile.user_id == friend_id
+                )
+                profile_result = await db.execute(profile_stmt)
+                profile = profile_result.scalars().first()
+                
+                verifying_partners.append(schemas.UserSummaryOut(
+                    id=user.id,
+                    username=user.username,
+                    email=user.email,
+                    avatar_url=profile.avatar_url if profile else None
+                ))
+    
+    # Return with verifying partners
+    return schemas.GoalDetailOut(
+        id=goal_with_milestones.id,
+        user_id=goal_with_milestones.user_id,
+        title=goal_with_milestones.title,
+        description=goal_with_milestones.description,
+        milestone_type=goal_with_milestones.milestone_type,
+        status=goal_with_milestones.status,
+        is_completed=goal_with_milestones.is_completed,
+        milestones=goal_with_milestones.milestones,
+        start_date=goal_with_milestones.start_date,
+        deadline=goal_with_milestones.deadline,
+        privacy_setting=goal_with_milestones.privacy_setting,
+        image_url=goal_with_milestones.image_url,
+        milestone_quantity=goal_with_milestones.milestone_quantity,
+        milestone_unit=goal_with_milestones.milestone_unit,
+        user_story=goal_with_milestones.user_story,
+        verifying_partners=verifying_partners if verifying_partners else None
+    )
 
 @router.get("", response_model=List[schemas.GoalListOut])
 async def list_goals(
@@ -156,7 +201,55 @@ async def get_goal(
     if not goal:
         raise HTTPException(status_code=404, detail="Goal not found")
     
-    return goal
+    # Load verifying partners
+    verifying_partners = []
+    if goal.privacy_setting == models.GoalPrivacy.select_friends:
+        viewers_stmt = select(models.GoalAllowedViewer).where(
+            models.GoalAllowedViewer.goal_id == goal_id,
+            models.GoalAllowedViewer.can_verify == True
+        )
+        viewers_result = await db.execute(viewers_stmt)
+        allowed_viewers = viewers_result.scalars().all()
+        
+        for viewer in allowed_viewers:
+            user_stmt = select(models.User).where(models.User.id == viewer.user_id)
+            user_result = await db.execute(user_stmt)
+            user = user_result.scalars().first()
+            
+            if user:
+                # Get profile
+                profile_stmt = select(models.UserProfile).where(
+                    models.UserProfile.user_id == viewer.user_id
+                )
+                profile_result = await db.execute(profile_stmt)
+                profile = profile_result.scalars().first()
+                
+                verifying_partners.append(schemas.UserSummaryOut(
+                    id=user.id,
+                    username=user.username,
+                    email=user.email,
+                    avatar_url=profile.avatar_url if profile else None
+                ))
+    
+    # Return with verifying partners
+    return schemas.GoalDetailOut(
+        id=goal.id,
+        user_id=goal.user_id,
+        title=goal.title,
+        description=goal.description,
+        milestone_type=goal.milestone_type,
+        status=goal.status,
+        is_completed=goal.is_completed,
+        milestones=goal.milestones,
+        start_date=goal.start_date,
+        deadline=goal.deadline,
+        privacy_setting=goal.privacy_setting,
+        image_url=goal.image_url,
+        milestone_quantity=goal.milestone_quantity,
+        milestone_unit=goal.milestone_unit,
+        user_story=goal.user_story,
+        verifying_partners=verifying_partners if verifying_partners else None
+    )
 
 
 @router.put("/{goal_id}", response_model=schemas.GoalDetailOut)
