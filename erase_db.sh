@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# erase_db_v2.sh - Safely erase all rows from PostgreSQL database while preserving schema
-# This version works WITHOUT requiring superuser privileges
-
 set -e  # Exit on error
 
 # Color codes for output
