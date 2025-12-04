@@ -161,7 +161,7 @@ async def list_proofs(
     
     user_proofs = user_proofs_result.scalars().all(); print(f"DEBUG Proof Listing: User {current_user.id} querying proofs...")
     friends_proofs = friends_proofs_result.scalars().all(); print(f"DEBUG Proof Listing: Found {len(user_proofs)} user proofs, {len(friends_proofs)} friend proofs")
-    friends_proofs = friends_proofs_result.scalars().all()
+
     
     # Combine all proofs
     all_proofs = list(user_proofs) + list(friends_proofs)
