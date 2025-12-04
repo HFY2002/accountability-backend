@@ -50,7 +50,6 @@ async def create_template(
     template = models.GoalTemplate(
         title=template_in.title,
         description=template_in.description,
-        category_id=template_in.category_id,
         image_url=template_in.image_url,
         milestones=milestones_json
     )

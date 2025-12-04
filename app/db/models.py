@@ -82,14 +82,6 @@ class UserProfile(Base):
     
     user = relationship("User", back_populates="profile")
 
-class GoalCategory(Base):
-    __tablename__ = "goal_categories"
-    id = Column(Integer, primary_key=True)
-    name = Column(String, unique=True, nullable=False)
-    slug = Column(String, unique=True, nullable=False)
-    emoji = Column(String)
-    is_default = Column(Boolean, default=False)
-
 class Goal(Base):
     __tablename__ = "goals"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

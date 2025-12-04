@@ -58,18 +58,7 @@ async def set_interests(
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
-    # Get category IDs from names
-    category_ids = []
-    for category_name in interests.category_names:
-        result = await db.execute(
-            select(models.GoalCategory.id).where(models.GoalCategory.name == category_name)
-        )
-        category = result.scalars().first()
-        if category:
-            category_ids.append(category)
-    
-    # In a real app, store these interests properly
-    # For now, just mark onboarding as complete
+    # Mark onboarding as complete
     profile.onboarding_completed = True
     await db.commit()
     await db.refresh(profile)

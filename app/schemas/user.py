@@ -38,7 +38,7 @@ class UserProfileUpdate(BaseModel):
 
 
 class UserInterestsUpdate(BaseModel):
-    category_names: List[str]
+    category_names: List[str]  # Kept for compatibility, but not used
 
 
 class UserLogin(BaseModel):

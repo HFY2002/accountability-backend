@@ -21,7 +21,6 @@ async def create_goal(
         user_id=current_user.id,
         title=goal_in.title,
         description=goal_in.description,
-        category_id=goal_in.category_id,
         start_date=goal_in.start_date,
         deadline=goal_in.deadline,
         privacy_setting=goal_in.privacy_setting,
