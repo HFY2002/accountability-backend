@@ -94,7 +94,6 @@ class Goal(Base):
     __tablename__ = "goals"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    category_id = Column(Integer, ForeignKey("goal_categories.id"))
     title = Column(String, nullable=False)
     description = Column(Text)
     
@@ -215,12 +214,9 @@ class GoalTemplate(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title = Column(String, nullable=False)
     description = Column(Text)
-    category_id = Column(Integer, ForeignKey("goal_categories.id"), nullable=False)
     image_url = Column(String)
     milestones = Column(Text)  # JSON string array of milestone titles
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
-    category = relationship("GoalCategory")
 
 class Quote(Base):
     __tablename__ = "quotes"

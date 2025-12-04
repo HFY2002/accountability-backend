@@ -8,7 +8,6 @@ class GoalTemplateOut(BaseModel):
     id: UUID
     title: str
     description: Optional[str] = None
-    category_id: int
     image_url: Optional[str] = None
     milestones: List[str]
     created_at: datetime
@@ -20,6 +19,5 @@ class GoalTemplateOut(BaseModel):
 class GoalTemplateIn(BaseModel):
     title: str
     description: Optional[str] = None
-    category_id: int
     image_url: Optional[str] = None
     milestones: List[str]

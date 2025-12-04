@@ -41,7 +41,6 @@ class MilestoneOut(BaseModel):
 class GoalBaseIn(BaseModel):
     title: str
     description: Optional[str] = None
-    category_id: Optional[int] = None
     start_date: date
     deadline: date
     privacy_setting: GoalPrivacy = GoalPrivacy.private
@@ -72,7 +71,6 @@ class GoalCreateDefinedIn(GoalBaseIn):
 class GoalListOut(BaseModel):
     id: UUID
     user_id: UUID
-    category_id: Optional[int]
     title: str
     description: Optional[str]
     milestone_type: MilestoneType
