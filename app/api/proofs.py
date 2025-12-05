@@ -28,7 +28,7 @@ async def expire_old_proofs(db: AsyncSession):
     expired_proofs = result.scalars().all()
     
     for proof in expired_proofs:
-        proof.status = models.ProofStatus.expired
+        proof.status = models.ProofStatus.rejected
         
         # Create expiry notification for the uploader
         await create_notification(
@@ -270,7 +270,7 @@ async def get_proof_details(
     # Check if proof has expired
     if proof.verification_expires_at and proof.verification_expires_at < datetime.now(timezone.utc):
         if proof.status == models.ProofStatus.pending:
-            proof.status = models.ProofStatus.expired
+            proof.status = models.ProofStatus.rejected
             await db.commit()
             await db.refresh(proof)
     
@@ -550,7 +550,7 @@ async def verify_proof(
     # NEW: Check if proof has expired
     if proof.verification_expires_at and proof.verification_expires_at < datetime.now(timezone.utc):
         if proof.status == models.ProofStatus.pending:
-            proof.status = models.ProofStatus.expired
+            proof.status = models.ProofStatus.rejected
             await db.commit()
             await db.refresh(proof)
         raise HTTPException(status_code=400, detail="This proof has expired and can no longer be verified")
