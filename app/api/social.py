@@ -30,6 +30,8 @@ async def list_friends(
     
     # Transform the friendships into FriendOut schema format
     friends_list = []
+    seen_user_ids = set()
+    
     for friendship in friendships:
         # Determine the other user's ID and the friendship status from current user's perspective
         if friendship.requester_id == current_user.id:
@@ -48,6 +50,12 @@ async def list_friends(
                 status = "pending_received"
             else:
                 status = "accepted"
+        
+        # Skip if we've already processed this user (deduplication)
+        if other_user_id in seen_user_ids:
+            continue
+            
+        seen_user_ids.add(other_user_id)
         
         # Get the other user's details
         user_stmt = select(models.User).where(models.User.id == other_user_id)
@@ -120,6 +128,34 @@ async def send_friend_request(
             status="accepted",
             added_at=reverse_request.created_at
         )
+
+    # Check if a request already exists from current user to target
+    stmt = select(models.Friend).where(
+        models.Friend.requester_id == current_user.id,
+        models.Friend.addressee_id == target_id
+    )
+    result = await db.execute(stmt)
+    existing_request = result.scalars().first()
+    
+    if existing_request:
+        if existing_request.status == models.FriendStatus.pending:
+            raise HTTPException(status_code=400, detail="Friend request already sent")
+        elif existing_request.status == models.FriendStatus.accepted:
+            raise HTTPException(status_code=400, detail="Already friends")
+        elif existing_request.status == models.FriendStatus.blocked:
+            raise HTTPException(status_code=400, detail="Cannot send friend request")
+    
+    # Check if they are already friends (accepted) where current user is addressee
+    stmt = select(models.Friend).where(
+        models.Friend.requester_id == target_id,
+        models.Friend.addressee_id == current_user.id,
+        models.Friend.status == models.FriendStatus.accepted
+    )
+    result = await db.execute(stmt)
+    existing_friendship = result.scalars().first()
+    
+    if existing_friendship:
+        raise HTTPException(status_code=400, detail="Already friends")
 
     # Create new request
     new_friendship = models.Friend(
