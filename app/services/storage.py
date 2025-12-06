@@ -12,11 +12,24 @@ class StorageService:
             config=Config(signature_version="s3v4"),
             region_name="us-east-1",
         )
+        
+        # Client for generating public-facing URLs (if different from internal)
+        if settings.MINIO_PUBLIC_ENDPOINT:
+            self.public_s3_client = boto3.client(
+                "s3",
+                endpoint_url=f"http://{settings.MINIO_PUBLIC_ENDPOINT}",
+                aws_access_key_id=settings.MINIO_ACCESS_KEY,
+                aws_secret_access_key=settings.MINIO_SECRET_KEY,
+                config=Config(signature_version="s3v4"),
+                region_name="us-east-1",
+            )
+        else:
+            self.public_s3_client = self.s3_client
 
     def generate_presigned_put(self, object_name: str, content_type: str) -> str:
         """Generate a URL for the frontend to upload directly to storage."""
         try:
-            response = self.s3_client.generate_presigned_url(
+            response = self.public_s3_client.generate_presigned_url(
                 "put_object",
                 Params={
                     "Bucket": settings.PROOF_BUCKET,
@@ -33,7 +46,7 @@ class StorageService:
     def generate_presigned_get(self, object_name: str, expires_in: int = 3600) -> str:
         """Generate temporary access URL for authorized users (private access)."""
         try:
-            response = self.s3_client.generate_presigned_url(
+            response = self.public_s3_client.generate_presigned_url(
                 "get_object",
                 Params={
                     "Bucket": settings.PROOF_BUCKET,
@@ -49,7 +62,8 @@ class StorageService:
     def get_public_url(self, object_name: str) -> str:
         """Return direct permanent URL for public bucket access."""
         # Bucket is already public, return direct URL instead of expiring presigned URL
-        return f"http://{settings.MINIO_ENDPOINT}/{settings.PROOF_BUCKET}/{object_name}"
+        endpoint = settings.MINIO_PUBLIC_ENDPOINT or settings.MINIO_ENDPOINT
+        return f"http://{endpoint}/{settings.PROOF_BUCKET}/{object_name}"
     
     def get_object_key_from_url(self, url: str) -> str:
         """Extract object key from full URL."""
