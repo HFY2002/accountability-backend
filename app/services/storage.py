@@ -32,6 +32,7 @@ class StorageService:
         logger = logging.getLogger("backend")
         try:
             endpoint = self.public_s3_client.meta.endpoint_url
+            print(f"DEBUG: Generating presigned PUT URL using endpoint: {endpoint}")
             logger.info(f"Generating presigned PUT URL using endpoint: {endpoint}")
             
             response = self.public_s3_client.generate_presigned_url(
