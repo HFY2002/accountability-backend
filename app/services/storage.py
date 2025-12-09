@@ -28,7 +28,12 @@ class StorageService:
 
     def generate_presigned_put(self, object_name: str, content_type: str) -> str:
         """Generate a URL for the frontend to upload directly to storage."""
+        import logging
+        logger = logging.getLogger("backend")
         try:
+            endpoint = self.public_s3_client.meta.endpoint_url
+            logger.info(f"Generating presigned PUT URL using endpoint: {endpoint}")
+            
             response = self.public_s3_client.generate_presigned_url(
                 "put_object",
                 Params={
@@ -40,6 +45,7 @@ class StorageService:
             )
             return response
         except Exception as e:
+            logger.error(f"Error generating presigned URL: {e}")
             print(f"Error generating presigned URL: {e}")
             return None
 
