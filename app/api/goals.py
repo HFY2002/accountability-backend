@@ -421,7 +421,7 @@ async def give_up_goal(
     goal.status = models.GoalStatus.failed
     goal.is_completed = True
     goal.completed_at = datetime.utcnow()
-    
+
     await db.commit()
     return {"message": "Goal marked as failed", "status": goal.status}
 
