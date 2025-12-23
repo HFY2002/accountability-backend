@@ -19,10 +19,10 @@ class ProofVerificationCreateIn(BaseModel):
 class ProofVerificationOut(BaseModel):
     id: UUID
     verifier_id: UUID
-    verifierName: Optional[str] = None  # Added for frontend compatibility
+    verifier_name: Optional[str] = None  # Renamed from verifierName
     approved: bool
     comment: Optional[str] = None
-    created_at: datetime
+    timestamp: datetime  # Renamed from created_at
 
     class Config:
         from_attributes = True
@@ -32,7 +32,7 @@ class ProofOut(BaseModel):
     goal_id: UUID
     milestone_id: Optional[UUID] = None
     user_id: UUID
-    userName: Optional[str] = None  # Added for frontend compatibility
+    user_name: Optional[str] = None  # Renamed from userName
     image_url: str
     caption: Optional[str] = None
     status: ProofStatus

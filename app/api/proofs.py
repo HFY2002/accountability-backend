@@ -230,10 +230,10 @@ async def list_proofs(
             verif_out.append(schemas.ProofVerificationOut(
                 id=v.id,
                 verifier_id=v.verifier_id,
-                verifierName=verifier.username if verifier else "Unknown",
+                verifier_name=verifier.username if verifier else "Unknown",
                 approved=v.approved,
                 comment=v.comment,
-                created_at=v.created_at
+                timestamp=v.created_at
             ))
         
         # Create the proof output with all required fields
@@ -242,7 +242,7 @@ async def list_proofs(
             goal_id=proof.goal_id,
             milestone_id=proof.milestone_id,
             user_id=proof.user_id,
-            userName=user.username if user else "Unknown",
+            user_name=user.username if user else "Unknown",
             image_url=proof.image_url,
             caption=proof.caption,
             status=proof.status,
@@ -334,10 +334,10 @@ async def get_proof_details(
         verif_out.append(schemas.ProofVerificationOut(
             id=v.id,
             verifier_id=v.verifier_id,
-            verifierName=verifier.username if verifier else "Unknown",
+            verifier_name=verifier.username if verifier else "Unknown",
             approved=v.approved,
             comment=v.comment,
-            created_at=v.created_at
+            timestamp=v.created_at
         ))
     
     return schemas.ProofOut(
@@ -345,7 +345,7 @@ async def get_proof_details(
         goal_id=proof.goal_id,
         milestone_id=proof.milestone_id,
         user_id=proof.user_id,
-        userName=user.username if user else "Unknown",
+        user_name=user.username if user else "Unknown", # Renamed from userName
         image_url=proof.image_url,
         caption=proof.caption,
         status=proof.status,
@@ -677,10 +677,10 @@ async def verify_proof(
         verif_out.append(schemas.ProofVerificationOut(
             id=v.id,
             verifier_id=v.verifier_id,
-            verifierName=verifier.username if verifier else "Unknown",
+            verifier_name=verifier.username if verifier else "Unknown",
             approved=v.approved,
             comment=v.comment,
-            created_at=v.created_at
+            timestamp=v.created_at
         ))
     
     user_stmt = select(models.User).where(models.User.id == proof.user_id)
@@ -696,7 +696,7 @@ async def verify_proof(
         goal_id=proof.goal_id,
         milestone_id=proof.milestone_id,
         user_id=proof.user_id,
-        userName=user.username if user else "Unknown",
+        user_name=user.username if user else "Unknown", # Renamed from userName
         image_url=proof.image_url,
         caption=proof.caption,
         status=proof.status,
