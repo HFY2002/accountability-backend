@@ -274,3 +274,34 @@ async def decline_friend_request(
     await db.commit()
     
     return None
+
+@router.delete("/friends/{friendship_id}", status_code=204)
+async def remove_friend(
+    friendship_id: UUID,
+    db: AsyncSession = Depends(deps.get_db),
+    current_user: models.User = Depends(deps.get_current_user),
+):
+    """Remove a friend (delete the friendship)."""
+    # Find the friendship
+    stmt = select(models.Friend).where(
+        models.Friend.id == friendship_id,
+        or_(
+            models.Friend.requester_id == current_user.id,
+            models.Friend.addressee_id == current_user.id
+        ),
+        models.Friend.status == models.FriendStatus.accepted
+    )
+    result = await db.execute(stmt)
+    friendship = result.scalars().first()
+    
+    if not friendship:
+        raise HTTPException(
+            status_code=404, 
+            detail="Friendship not found or you don't have permission to remove it"
+        )
+    
+    # Delete the friendship (hard delete)
+    await db.delete(friendship)
+    await db.commit()
+    
+    return None

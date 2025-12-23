@@ -114,43 +114,61 @@ async def list_proofs(
         models.Proof.user_id == current_user.id
     )
     
-    # Get proofs from friends that are pending and need verification
-    # Filter based on privacy settings - only show proofs where user is an allowed viewer
+    # Define 48-hour cutoff for recently approved proofs
+    cutoff_time = datetime.now(timezone.utc) - timedelta(hours=48)
+    
+    # Create "Verified By Me Recently" Subquery
+    verified_by_me_recently = select(models.ProofVerification).where(
+        models.ProofVerification.proof_id == models.Proof.id,
+        models.ProofVerification.verifier_id == current_user.id,
+        models.ProofVerification.approved == True,
+        models.ProofVerification.created_at >= cutoff_time
+    ).exists()
+    
+    # Define privacy check (existing logic)
+    privacy_check = or_(
+        and_(
+            models.Goal.privacy_setting == models.GoalPrivacy.friends,
+            select(models.Friend).where(
+                or_(
+                    and_(
+                        models.Friend.requester_id == current_user.id,
+                        models.Friend.addressee_id == models.Proof.user_id,
+                        models.Friend.status == models.FriendStatus.accepted
+                    ),
+                    and_(
+                        models.Friend.addressee_id == current_user.id,
+                        models.Friend.requester_id == models.Proof.user_id,
+                        models.Friend.status == models.FriendStatus.accepted
+                    )
+                )
+            ).exists()
+        ),
+        and_(
+            models.Goal.privacy_setting == models.GoalPrivacy.select_friends,
+            select(models.GoalAllowedViewer).where(
+                models.GoalAllowedViewer.goal_id == models.Goal.id,
+                models.GoalAllowedViewer.user_id == current_user.id,
+                models.GoalAllowedViewer.can_verify == True
+            ).exists()
+        )
+    )
+    
+    # Get proofs from friends - both pending and recently approved by me
     friends_proofs_stmt = select(models.Proof).join(
         models.Goal,
         models.Goal.id == models.Proof.goal_id
     ).where(
         and_(
-            models.Proof.user_id != current_user.id,
-            models.Proof.status == models.ProofStatus.pending,
+            models.Proof.user_id != current_user.id,  # Still never show my own proofs here
             or_(
-                # Goal is set to 'friends' - check if users are friends
+                # Scenario A: Pending Verification (Old Logic)
                 and_(
-                    models.Goal.privacy_setting == models.GoalPrivacy.friends,
-                    select(models.Friend).where(
-                        or_(
-                            and_(
-                                models.Friend.requester_id == current_user.id,
-                                models.Friend.addressee_id == models.Proof.user_id,
-                                models.Friend.status == models.FriendStatus.accepted
-                            ),
-                            and_(
-                                models.Friend.addressee_id == current_user.id,
-                                models.Friend.requester_id == models.Proof.user_id,
-                                models.Friend.status == models.FriendStatus.accepted
-                            )
-                        )
-                    ).exists()
+                    models.Proof.status == models.ProofStatus.pending,
+                    privacy_check
                 ),
-                # Goal is set to 'select_friends' - check if user is explicitly allowed
-                and_(
-                    models.Goal.privacy_setting == models.GoalPrivacy.select_friends,
-                    select(models.GoalAllowedViewer).where(
-                        models.GoalAllowedViewer.goal_id == models.Goal.id,
-                        models.GoalAllowedViewer.user_id == current_user.id,
-                        models.GoalAllowedViewer.can_verify == True
-                    ).exists()
-                )
+                # Scenario B: Recently Approved by Me (New Logic)
+                verified_by_me_recently
             )
         )
     )

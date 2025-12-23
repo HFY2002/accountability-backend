@@ -11,7 +11,7 @@ This plan outlines the steps to implement the "Unadd Friend" functionality in th
 
 ### Backend
 
-#### [Modify] [accountability-backend/app/api/social.py](file:///c:/Users/User/Desktop/frontend/accountability-backend/app/api/social.py)
+#### [Modify] [root/backend/app/api/social.py]
 
 - Add a new `DELETE` endpoint to remove an existing friendship.
 - **Endpoint**: `/requests/{friendship_id}` is for requests. We should add `/friends/{friendship_id}` to specifically handle established friendships, or use a generic delete if preferred. Given the current structure, adding it as a top-level resource under the router makes sense.
@@ -34,7 +34,7 @@ async def remove_friend(
 
 ### Frontend
 
-#### [Modify] [accountability-frontend/src/lib/api.ts](file:///c:/Users/User/Desktop/frontend/accountability-frontend/src/lib/api.ts)
+#### [Modify] [root/frontend/src/lib/api.ts]
 
 - Update `socialAPI` object to include the `removeFriend` method.
 
@@ -46,7 +46,7 @@ export const socialAPI = {
 ```
 *Note: The backend router is likely mounted with a prefix. If `social.py` is mounted at `/friends`, then `@router.delete("/{friendship_id}")` would effectively be `/friends/{friendship_id}`.*
 
-#### [Modify] [accountability-frontend/src/components/social/SocialPage.tsx](file:///c:/Users/User/Desktop/frontend/accountability-frontend/src/components/social/SocialPage.tsx)
+#### [Modify] [root/frontend/src/components/social/SocialPage.tsx]
 
 - **Imports**:
     - Import `AlertDialog` components from `../ui/alert-dialog`.
