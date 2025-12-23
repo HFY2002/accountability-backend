@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, func
+from sqlalchemy.orm import joinedload
 from uuid import UUID
 import uuid
 import re
@@ -20,7 +21,7 @@ async def expire_old_proofs(db: AsyncSession):
     expiry_time = datetime.now(timezone.utc) - timedelta(hours=72)
     
     # Find pending proofs past expiry
-    expired_stmt = select(models.Proof).where(
+    expired_stmt = select(models.Proof).options(joinedload(models.Proof.goal)).where(
         models.Proof.status == models.ProofStatus.pending,
         models.Proof.verification_expires_at < datetime.now(timezone.utc)
     )
