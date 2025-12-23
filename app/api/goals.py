@@ -404,6 +404,7 @@ async def mark_goal_complete(
 @router.post("/{goal_id}/give-up")
 async def give_up_goal(
     goal_id: str,
+    body: schemas.GoalGiveUpIn,
     db: AsyncSession = Depends(deps.get_db),
     current_user: models.User = Depends(deps.get_current_user),
 ):
@@ -421,6 +422,7 @@ async def give_up_goal(
     goal.status = models.GoalStatus.failed
     goal.is_completed = True
     goal.completed_at = datetime.utcnow()
+    goal.failure_reason = body.failure_reason
 
     await db.commit()
     return {"message": "Goal marked as failed", "status": goal.status}

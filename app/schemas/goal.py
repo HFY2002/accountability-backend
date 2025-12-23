@@ -55,6 +55,10 @@ class GoalUpdate(BaseModel):
     selected_friend_ids: Optional[List[UUID]] = None
 
 
+class GoalGiveUpIn(BaseModel):
+    failure_reason: str
+
+
 class GoalCreateFlexibleIn(GoalBaseIn):
     milestone_type: Literal["flexible"] = "flexible"
     milestone_interval_days: int
@@ -85,6 +89,7 @@ class GoalListOut(BaseModel):
     is_completed: bool
     milestone_quantity: Optional[int]
     milestone_unit: Optional[str]
+    failure_reason: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -106,6 +111,7 @@ class GoalDetailOut(BaseModel):
     milestone_quantity: Optional[int] = None
     milestone_unit: Optional[str] = None
     user_story: Optional[str] = None
+    failure_reason: Optional[str] = None
     verifying_partners: Optional[List[UserSummaryOut]] = None
 
     class Config:

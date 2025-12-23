@@ -104,6 +104,7 @@ class Goal(Base):
     
     is_completed = Column(Boolean, default=False)
     completed_at = Column(DateTime(timezone=True))
+    failure_reason = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     owner = relationship("User", back_populates="goals")
