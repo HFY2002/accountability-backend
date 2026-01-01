@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 from typing import List, Optional, Literal
 from datetime import date, datetime
 from uuid import UUID
@@ -30,6 +30,7 @@ class MilestoneOut(BaseModel):
     order_index: int
     due_date: Optional[date] = None
     completed: bool
+    failed: bool = False  # NEW FIELD
     progress: int
     completed_at: Optional[datetime] = None
 
@@ -90,9 +91,39 @@ class GoalListOut(BaseModel):
     milestone_quantity: Optional[int]
     milestone_unit: Optional[str]
     failure_reason: Optional[str] = None
+    milestones: List[MilestoneOut] = []  # NEW: Include milestones
+    recent_milestones: Optional[str] = None  # NEW: Computed field for display
 
     class Config:
         from_attributes = True
+    
+    @validator('recent_milestones', always=True)
+    def compute_recent_milestones(cls, v, values):
+        """Compute recent_milestones from the milestones list"""
+        milestones = values.get('milestones', [])
+        if not milestones:
+            return ""
+        
+        # Sort milestones by order_index
+        sorted_milestones = sorted(milestones, key=lambda m: m.order_index)
+        
+        # Get completed milestones (excluding failed ones)
+        completed = [m for m in sorted_milestones if m.completed and not m.failed]
+        
+        # Get incomplete milestones (not completed and not failed)
+        incomplete = [m for m in sorted_milestones if not m.completed and not m.failed]
+        
+        # Select last 2 completed
+        last_two_completed = completed[-2:] if len(completed) >= 2 else completed
+        
+        # Select first incomplete (most recent one to work on)
+        first_incomplete = incomplete[0:1] if incomplete else []
+        
+        # Combine them
+        display_milestones = last_two_completed + first_incomplete
+        
+        # Return comma-separated titles
+        return ", ".join([m.title for m in display_milestones])
 
 
 class GoalDetailOut(BaseModel):

@@ -81,17 +81,16 @@ if [ -z "$TABLES" ]; then
 fi
 
 # Start transaction and truncate all tables
+# Generate dynamic list of tables to avoid hardcoding issues
+TABLE_LIST=$(echo "$TABLES" | tr '\n' ',' | sed 's/,$//')
+
 psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" <<EOF
 -- Start transaction to ensure atomic operation
 BEGIN;
 
 -- Truncate all tables with CASCADE to handle foreign key constraints
 -- CASCADE will truncate child tables when parent tables are truncated
-TRUNCATE TABLE 
-  users, user_profiles, friends, goals, goal_categories, goal_templates,
-  milestones, daily_tasks, proofs, proof_verifications, goal_allowed_viewers,
-  partner_notifications, quotes, alembic_version
-CASCADE;
+TRUNCATE TABLE $TABLE_LIST CASCADE;
 
 -- Commit transaction
 COMMIT;

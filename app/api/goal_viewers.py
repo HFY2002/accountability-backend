@@ -6,6 +6,7 @@ from uuid import UUID
 from app.api import deps
 from app.db import models
 from app.schemas import social as social_schemas
+from app.schemas.goal_viewers import AllowedViewerAddIn
 
 router = APIRouter()
 
@@ -68,7 +69,7 @@ async def get_goal_allowed_viewers(
 @router.post("/goals/{goal_id}/allowed-viewers", response_model=social_schemas.FriendOut)
 async def add_goal_allowed_viewer(
     goal_id: UUID,
-    viewer_id: UUID,
+    viewer_data: AllowedViewerAddIn,
     db: AsyncSession = Depends(deps.get_db),
     current_user: models.User = Depends(deps.get_current_user),
 ):
@@ -92,11 +93,11 @@ async def add_goal_allowed_viewer(
         or_(
             and_(
                 models.Friend.requester_id == current_user.id,
-                models.Friend.addressee_id == viewer_id,
+                models.Friend.addressee_id == viewer_data.viewer_id,
                 models.Friend.status == models.FriendStatus.accepted
             ),
             and_(
-                models.Friend.requester_id == viewer_id,
+                models.Friend.requester_id == viewer_data.viewer_id,
                 models.Friend.addressee_id == current_user.id,
                 models.Friend.status == models.FriendStatus.accepted
             )
@@ -111,7 +112,7 @@ async def add_goal_allowed_viewer(
     # Check if already added
     existing_stmt = select(models.GoalAllowedViewer).where(
         models.GoalAllowedViewer.goal_id == goal_id,
-        models.GoalAllowedViewer.user_id == viewer_id
+        models.GoalAllowedViewer.user_id == viewer_data.viewer_id
     )
     existing_result = await db.execute(existing_stmt)
     if existing_result.scalars().first():
@@ -120,19 +121,19 @@ async def add_goal_allowed_viewer(
     # Add the viewer
     allowed_viewer = models.GoalAllowedViewer(
         goal_id=goal_id,
-        user_id=viewer_id,
+        user_id=viewer_data.viewer_id,
         can_verify=True
     )
     db.add(allowed_viewer)
     await db.commit()
     
     # Get user details for response
-    user_stmt = select(models.User).where(models.User.id == viewer_id)
+    user_stmt = select(models.User).where(models.User.id == viewer_data.viewer_id)
     user_result = await db.execute(user_stmt)
     user = user_result.scalars().first()
     
     profile_stmt = select(models.UserProfile).where(
-        models.UserProfile.user_id == viewer_id
+        models.UserProfile.user_id == viewer_data.viewer_id
     )
     profile_result = await db.execute(profile_stmt)
     profile = profile_result.scalars().first()

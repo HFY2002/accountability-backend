@@ -134,6 +134,7 @@ class Milestone(Base):
     due_date = Column(Date)
     
     completed = Column(Boolean, default=False)
+    failed = Column(Boolean, default=False)  # NEW FIELD - auto-fail overdue milestones
     progress = Column(Integer, default=0)
     completed_at = Column(DateTime(timezone=True))
     
@@ -210,6 +211,22 @@ class GoalTemplate(Base):
     image_url = Column(String)
     milestones = Column(Text)  # JSON string array of milestone titles
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class IntervalChangeRequest(Base):
+    __tablename__ = "interval_change_requests"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    goal_id = Column(UUID(as_uuid=True), ForeignKey("goals.id"), nullable=False)
+    requester_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    current_interval = Column(Integer, nullable=False)
+    requested_interval = Column(Integer, nullable=False)
+    status = Column(String, default="pending")  # pending, approved, rejected
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+    resolved_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    
+    goal = relationship("Goal")
+    requester = relationship("User", foreign_keys=[requester_id])
+    resolver = relationship("User", foreign_keys=[resolved_by])
 
 class Quote(Base):
     __tablename__ = "quotes"

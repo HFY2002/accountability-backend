@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api import goals, proofs, social, auth, users, daily_tasks, templates, quotes, goal_viewers, notifications
+from app.api import goals, proofs, social, auth, users, daily_tasks, templates, quotes, goal_viewers, notifications, interval_changes
 
 api_router = APIRouter()
 
@@ -13,4 +13,5 @@ api_router.include_router(social.router, prefix="/friends", tags=["social"])
 api_router.include_router(daily_tasks.router, prefix="/daily-tasks", tags=["daily_tasks"])
 api_router.include_router(templates.router, prefix="/templates", tags=["templates"])
 api_router.include_router(quotes.router, prefix="/quotes", tags=["quotes"])
+api_router.include_router(interval_changes.router, prefix="/interval-changes", tags=["interval-changes"])
 api_router.include_router(notifications.router, prefix="", tags=["notifications"])  # Notifications endpoints

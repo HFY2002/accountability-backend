@@ -10,6 +10,32 @@ from app.db import models
 
 router = APIRouter()
 
+async def auto_fail_overdue_milestones(db: AsyncSession, goal: models.Goal):
+    """
+    Auto-fail milestones that have passed their due_date.
+    Returns the updated milestones list.
+    """
+    from datetime import date
+    
+    # Query milestones for this goal
+    milestones_stmt = select(models.Milestone).where(
+        models.Milestone.goal_id == goal.id,
+        models.Milestone.completed == False,
+        models.Milestone.due_date.isnot(None),
+        models.Milestone.due_date < date.today()
+    )
+    
+    result = await db.execute(milestones_stmt)
+    overdue_milestones = result.scalars().all()
+    
+    for milestone in overdue_milestones:
+        milestone.completed = True
+        milestone.failed = True  # NEW FIELD - see schema changes below
+        milestone.completed_at = datetime.utcnow()
+    
+    if overdue_milestones:
+        await db.commit()
+
 @router.post("", response_model=schemas.GoalDetailOut)
 async def create_goal(
     goal_in: Union[schemas.GoalCreateFlexibleIn, schemas.GoalCreateDefinedIn],
@@ -175,10 +201,17 @@ async def list_goals(
     stmt = select(models.Goal).where(
         models.Goal.user_id == current_user.id,
         models.Goal.status != models.GoalStatus.archived
+    ).options(
+        selectinload(models.Goal.milestones)  # EAGER LOAD MILESTONES
     ).order_by(models.Goal.created_at.desc())
     
     result = await db.execute(stmt)
     goals = result.scalars().all()
+    
+    # Auto-fail overdue milestones and compute recent milestones for each goal
+    for goal in goals:
+        await auto_fail_overdue_milestones(db, goal)
+    
     return goals
 
 
