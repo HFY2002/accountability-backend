@@ -15,6 +15,11 @@ class MilestoneCreateIn(BaseModel):
     is_flexible: bool = False
 
 
+class MilestoneAppendIn(BaseModel):
+    title: str
+    description: Optional[str] = None
+
+
 class MilestoneBatchCreate(BaseModel):
     start_date: date
     milestones: List[MilestoneCreateIn]

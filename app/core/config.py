@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from typing import Optional
+from typing import Optional
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "Accountability Hub"

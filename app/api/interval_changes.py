@@ -72,7 +72,7 @@ async def create_interval_change_request(
                 db,
                 recipient_id=viewer.user_id,
                 type=models.NotificationType.interval_change_request,
-                message=f"{current_user.username} requested to change check-in interval for '{goal.title}' from {goal.milestone_interval_days or 0} to {request_in.requested_interval} days",
+                message=f"{current_user.username} requested to change milestone interval for '{goal.title}' from {goal.milestone_interval_days or 0} to {request_in.requested_interval} days",
                 actor_id=current_user.id,
                 goal_id=goal.id
             )
@@ -97,7 +97,7 @@ async def create_interval_change_request(
                 db,
                 recipient_id=friend_id,
                 type=models.NotificationType.interval_change_request,
-                message=f"{current_user.username} requested to change check-in interval for '{goal.title}' from {goal.milestone_interval_days or 0} to {request_in.requested_interval} days",
+                message=f"{current_user.username} requested to change milestone interval for '{goal.title}' from {goal.milestone_interval_days or 0} to {request_in.requested_interval} days",
                 actor_id=current_user.id,
                 goal_id=goal.id
             )

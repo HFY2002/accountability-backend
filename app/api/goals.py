@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_
+from sqlalchemy import select, and_, or_, func
 from sqlalchemy.orm import selectinload
 from typing import Union, List
 from datetime import datetime
@@ -188,6 +188,7 @@ async def create_goal(
         image_url=goal_with_milestones.image_url,
         milestone_quantity=goal_with_milestones.milestone_quantity,
         milestone_unit=goal_with_milestones.milestone_unit,
+        milestone_interval_days=goal_with_milestones.milestone_interval_days,
         user_story=goal_with_milestones.user_story,
         verifying_partners=verifying_partners if verifying_partners else None
     )
@@ -213,6 +214,73 @@ async def list_goals(
         await auto_fail_overdue_milestones(db, goal)
     
     return goals
+
+
+@router.post("/{goal_id}/milestones", response_model=List[schemas.MilestoneOut])
+async def append_milestones(
+    goal_id: str,
+    milestones_in: List[schemas.MilestoneAppendIn],
+    db: AsyncSession = Depends(deps.get_db),
+    current_user: models.User = Depends(deps.get_current_user),
+):
+    """
+    Append new milestones to a flexible goal.
+    Only allowed if the goal is flexible and all current milestones are completed.
+    """
+    # 1. Fetch Goal
+    stmt = select(models.Goal).where(
+        models.Goal.id == goal_id,
+        models.Goal.user_id == current_user.id
+    ).options(selectinload(models.Goal.milestones))
+    
+    result = await db.execute(stmt)
+    goal = result.scalars().first()
+    
+    if not goal:
+        raise HTTPException(status_code=404, detail="Goal not found")
+        
+    # 2. Validations
+    if goal.milestone_type != "flexible":
+        raise HTTPException(status_code=400, detail="Can only append milestones to flexible goals")
+        
+    # Check if all existing milestones are completed
+    if any(not m.completed for m in goal.milestones):
+         raise HTTPException(status_code=400, detail="All existing milestones must be completed first")
+
+    # 3. Determine new order index and dates
+    current_max_index = max((m.order_index for m in goal.milestones), default=-1)
+    
+    new_milestones = []
+    from datetime import timedelta
+    
+    for i, m_in in enumerate(milestones_in):
+        new_index = current_max_index + 1 + i
+        # Calculate due date: start_date + (index + 1) * interval
+        # Note: index is 0-based, so for index 0, it's 1 interval away
+        days_offset = (new_index + 1) * goal.milestone_interval_days
+        new_due_date = goal.start_date + timedelta(days=days_offset)
+        
+        milestone = models.Milestone(
+            goal_id=goal.id,
+            title=m_in.title,
+            description=m_in.description,
+            is_flexible=True,
+            batch_number=(goal.milestones[-1].batch_number + 1) if goal.milestones else 1,
+            order_index=new_index,
+            due_date=new_due_date,
+            completed=False,
+            progress=0
+        )
+        new_milestones.append(milestone)
+        
+    db.add_all(new_milestones)
+    await db.commit()
+    
+    # Reload milestones to return schemas
+    for m in new_milestones:
+        await db.refresh(m)
+        
+    return new_milestones
 
 
 @router.get("/{goal_id}", response_model=schemas.GoalDetailOut)
@@ -279,6 +347,7 @@ async def get_goal(
         image_url=goal.image_url,
         milestone_quantity=goal.milestone_quantity,
         milestone_unit=goal.milestone_unit,
+        milestone_interval_days=goal.milestone_interval_days,
         user_story=goal.user_story,
         verifying_partners=verifying_partners if verifying_partners else None
     )

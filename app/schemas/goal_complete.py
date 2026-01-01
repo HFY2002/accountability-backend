@@ -103,6 +103,7 @@ class GoalDetailOut(BaseModel):
     image_url: Optional[str] = None
     milestone_quantity: Optional[int] = None
     milestone_unit: Optional[str] = None
+    milestone_interval_days: Optional[int] = None
     user_story: Optional[str] = None
 
     class Config:
