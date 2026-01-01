@@ -60,7 +60,7 @@ async def get_goal_allowed_viewers(
                 email=user.email,
                 avatar=profile.avatar_url if profile else None,
                 status="accepted",  # Since they're allowed viewers, treat as accepted
-                added_at=viewer.created_at if hasattr(viewer, 'created_at') else goal.created_at
+                added_at=None  # Not tracking when viewers were added
             ))
     
     return viewers_list
@@ -145,7 +145,7 @@ async def add_goal_allowed_viewer(
         email=user.email,
         avatar=profile.avatar_url if profile else None,
         status="accepted",
-        added_at=allowed_viewer.created_at
+        added_at=None
     )
 
 

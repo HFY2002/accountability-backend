@@ -14,7 +14,7 @@ class FriendOut(BaseModel):
     email: str  # Other user's email
     avatar: Optional[str] = None  # Other user's avatar URL
     status: str  # 'accepted', 'pending_sent', 'pending_received'
-    added_at: datetime
+    added_at: Optional[datetime] = None  # Optional: when the friend/viewer was added
 
     class Config:
         from_attributes = True
